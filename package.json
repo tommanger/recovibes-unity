@@ -7,10 +7,16 @@
   "dependencies": {
     "com.unity.ugui": "1.0.0"
   },
-  "keywords": ["recommendations", "cross-promotion", "indie", "recovibes"],
+  "keywords": [
+    "recommendations",
+    "cross-promotion",
+    "indie",
+    "recovibes"
+  ],
   "author": {
     "name": "RecoVibes",
     "url": "https://recovibes.com"
   },
-  "documentationUrl": "https://recovibes.com"
+  "documentationUrl": "https://recovibes.com",
+  "license": "MIT"
 }
