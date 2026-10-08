@@ -27,7 +27,7 @@ namespace RecoVibes
     public class RecoVibesWidget : MonoBehaviour
     {
         public const string WidgetVersion = "unity-1";
-        public const string PackageVersion = "1.2.0";
+        public const string PackageVersion = "1.2.1";
 
         public enum ThemeMode { FromDashboard, Light, Dark }
 

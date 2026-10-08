@@ -110,7 +110,8 @@ namespace RecoVibes
     }
 
     /// <summary>FromDashboard follows the template; Vertical forces one column; Horizontal one row.</summary>
-    public enum RecoLayout { Vertical, Horizontal, FromDashboard }
+    /// <remarks>FromDashboard takes 0, the value scenes saved for the old default (Vertical), so they follow the dashboard.</remarks>
+    public enum RecoLayout { FromDashboard = 0, Horizontal = 1, Vertical = 2 }
 
     /// <summary>Pure helpers, kept apart from MonoBehaviour code so they can be unit tested.</summary>
     public static class RecoMath
@@ -121,7 +122,7 @@ namespace RecoVibes
         public static int AutoSlots(RecoLayout layout, float width, float height, bool heading, float cardHeight, float minCardWidth, float gap, float headingHeight)
         {
             int n;
-            if (layout == RecoLayout.Vertical)
+            if (layout != RecoLayout.Horizontal)
             {
                 float room = height - (heading ? headingHeight + gap : 0f);
                 n = Mathf.FloorToInt((room + gap) / (cardHeight + gap));
