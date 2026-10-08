@@ -18,6 +18,21 @@ namespace RecoVibes.Tests
         }
 
         [Test]
+        public void AutoScaleSizesInRealPoints()
+        {
+            // iPhone (460 dpi, 1179 px wide) showing a 1080-wide canvas: ~2.6x.
+            Assert.AreEqual(2.63f, RecoMath.AutoScale(460, 1179f / 1080f), 0.02f);
+            // Android at xxhdpi (480 dpi) with a 1080 canvas on a 1080 px screen: 3x.
+            Assert.AreEqual(3f, RecoMath.AutoScale(480, 1f), 0.001f);
+            // A 400-unit canvas on that phone already maps units to about a point (0.98 → 1).
+            Assert.AreEqual(1f, RecoMath.AutoScale(460, 1179f / 400f), 0.001f);
+            // Desktop monitor: never shrink below 1.
+            Assert.AreEqual(1f, RecoMath.AutoScale(96, 1f));
+            Assert.AreEqual(1f, RecoMath.AutoScale(0, 1f), "unknown dpi");
+            Assert.AreEqual(6f, RecoMath.AutoScale(5000, 0.1f), "capped");
+        }
+
+        [Test]
         public void VisibleFractionIsTheShareOnScreen()
         {
             var screen = new Rect(0, 0, 1000, 1000);

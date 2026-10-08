@@ -27,7 +27,7 @@ namespace RecoVibes
     public class RecoVibesWidget : MonoBehaviour
     {
         public const string WidgetVersion = "unity-1";
-        public const string PackageVersion = "1.0.0";
+        public const string PackageVersion = "1.1.0";
 
         public enum ThemeMode { FromDashboard, Light, Dark }
 
@@ -55,6 +55,9 @@ namespace RecoVibes
         [Tooltip("Space between cards, in canvas units.")]
         public float spacing = 10f;
 
+        [Tooltip("Size multiplier for everything (text, spacing, cards). 0 = Auto: sized in real points for the device, whatever your canvas resolution - e.g. ×2.6 on a 1080-wide canvas on a phone. Never scale the object's transform instead: Unity would draw the text small and stretch it (blurry).")]
+        [Min(0f)] public float scale = 0f;
+
         [Tooltip("Leave as is, unless you test against your own RecoVibes server.")]
         public string apiBase = "https://api.recovibes.com";
 
@@ -79,6 +82,8 @@ namespace RecoVibes
         readonly List<CardView> cards = new List<CardView>();
         RectTransform content;
         Vector2 renderedSize;
+        float renderedScale = 1f;
+        float k = 1f; // the scale in use while rendering
         float tick, lastClick = -10f;
         Coroutine loading;
 
@@ -154,6 +159,7 @@ namespace RecoVibes
             cards.Clear();
             shownCount = 0;
             renderedSize = Rect.rect.size;
+            k = renderedScale = EffectiveScale();
 
             var recs = response?.recommendations ?? new RecoCard[0];
             if (response == null || response.paused || recs.Length == 0)
@@ -167,8 +173,8 @@ namespace RecoVibes
             var pal = new Palette(dark, RecoMath.ParseColor(design.accent, new Color32(0x7e, 0x7e, 0xff, 0xff)));
             bool heading = !design.hideHeading;
 
-            var size = renderedSize - new Vector2(Padding * 2, Padding * 2);
-            int fit = slots > 0 ? slots : RecoMath.AutoSlots(layout, size.x, size.y, heading, cardHeight, minCardWidth, spacing, HeadingHeight);
+            var size = renderedSize - new Vector2(Padding * 2, Padding * 2) * k;
+            int fit = slots > 0 ? slots : RecoMath.AutoSlots(layout, size.x, size.y, heading, cardHeight * k, minCardWidth * k, spacing * k, HeadingHeight * k);
             shownCount = Mathf.Min(fit, recs.Length);
 
             content = NewRect("RecoVibes", Rect);
@@ -176,6 +182,7 @@ namespace RecoVibes
             var panel = content.gameObject.AddComponent<Image>();
             panel.sprite = Sprites.Rounded;
             panel.type = Image.Type.Sliced;
+            panel.pixelsPerUnitMultiplier = 1f / k; // corners grow with the scale
             panel.color = pal.Panel;
 
             // Fixed placement: heading pinned to the top, cards fill the rest.
@@ -183,12 +190,12 @@ namespace RecoVibes
 
             var list = NewRect("Cards", content);
             Stretch(list);
-            list.offsetMin = new Vector2(Padding, Padding);
-            list.offsetMax = new Vector2(-Padding, -(Padding + (heading ? HeadingHeight + spacing : 0f)));
+            list.offsetMin = new Vector2(Padding, Padding) * k;
+            list.offsetMax = new Vector2(-Padding, -(Padding + (heading ? HeadingHeight + spacing : 0f))) * k;
             HorizontalOrVerticalLayoutGroup group = layout == RecoLayout.Vertical
                 ? (HorizontalOrVerticalLayoutGroup)list.gameObject.AddComponent<VerticalLayoutGroup>()
                 : list.gameObject.AddComponent<HorizontalLayoutGroup>();
-            group.spacing = spacing;
+            group.spacing = spacing * k;
             group.childControlWidth = group.childControlHeight = true;
             group.childForceExpandWidth = true;
             group.childForceExpandHeight = layout == RecoLayout.Horizontal;
@@ -206,8 +213,8 @@ namespace RecoVibes
             row.anchorMin = new Vector2(0, 1);
             row.anchorMax = Vector2.one;
             row.pivot = new Vector2(0.5f, 1);
-            row.offsetMin = new Vector2(Padding, -(Padding + HeadingHeight));
-            row.offsetMax = new Vector2(-Padding, -Padding);
+            row.offsetMin = new Vector2(Padding, -(Padding + HeadingHeight)) * k;
+            row.offsetMax = new Vector2(-Padding, -Padding) * k;
             var h = row.gameObject.AddComponent<HorizontalLayoutGroup>();
             h.childControlWidth = h.childControlHeight = true;
             h.childForceExpandWidth = false;
@@ -229,9 +236,10 @@ namespace RecoVibes
             var bg = card.gameObject.AddComponent<Image>();
             bg.sprite = Sprites.Rounded;
             bg.type = Image.Type.Sliced;
+            bg.pixelsPerUnitMultiplier = 1f / k;
             bg.color = pal.Card;
             var le = card.gameObject.AddComponent<LayoutElement>();
-            if (layout == RecoLayout.Vertical) le.preferredHeight = cardHeight;
+            if (layout == RecoLayout.Vertical) le.preferredHeight = cardHeight * k;
             else
             {
                 // Equal widths: ignore what the text would like, share the row.
@@ -241,8 +249,8 @@ namespace RecoVibes
             }
 
             var row = card.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.padding = new RectOffset(12, 12, 10, 10);
-            row.spacing = 12;
+            row.padding = new RectOffset(Px(12), Px(12), Px(10), Px(10));
+            row.spacing = 12 * k;
             row.childAlignment = TextAnchor.MiddleLeft;
             row.childControlWidth = row.childControlHeight = true;
             row.childForceExpandWidth = row.childForceExpandHeight = false;
@@ -250,7 +258,7 @@ namespace RecoVibes
             // Avatar: the name's first letter on an accent-hued circle.
             var avatar = NewRect("Avatar", card);
             var avLe = avatar.gameObject.AddComponent<LayoutElement>();
-            avLe.preferredWidth = avLe.preferredHeight = avLe.minWidth = avLe.minHeight = 44;
+            avLe.preferredWidth = avLe.preferredHeight = avLe.minWidth = avLe.minHeight = 44 * k;
             var circle = avatar.gameObject.AddComponent<Image>();
             circle.sprite = Sprites.Circle;
             circle.color = pal.AvatarColor(index);
@@ -266,19 +274,19 @@ namespace RecoVibes
             col.childForceExpandWidth = true;
             col.childForceExpandHeight = false;
             col.childAlignment = TextAnchor.MiddleLeft;
-            col.spacing = 2;
+            col.spacing = 2 * k;
 
             var name = NewText("Name", body, string.IsNullOrEmpty(rec.name) ? rec.host : rec.name, 16, pal.Fg, FontStyle.Bold);
             name.horizontalOverflow = HorizontalWrapMode.Wrap;
             name.verticalOverflow = VerticalWrapMode.Truncate;
-            name.gameObject.AddComponent<LayoutElement>().preferredHeight = 21;
+            name.gameObject.AddComponent<LayoutElement>().preferredHeight = 21 * k;
             string desc = !string.IsNullOrEmpty(rec.description) ? rec.description : string.Join(" · ", rec.categories ?? new string[0]);
             if (!string.IsNullOrEmpty(desc))
             {
                 var d = NewText("Description", body, desc, 13, pal.Muted, FontStyle.Normal);
                 d.horizontalOverflow = HorizontalWrapMode.Wrap;
                 d.verticalOverflow = VerticalWrapMode.Truncate;
-                d.gameObject.AddComponent<LayoutElement>().preferredHeight = Mathf.Max(18, cardHeight - 46);
+                d.gameObject.AddComponent<LayoutElement>().preferredHeight = Mathf.Max(18, cardHeight - 46) * k;
             }
 
             var button = card.gameObject.AddComponent<Button>();
@@ -324,8 +332,8 @@ namespace RecoVibes
 
         void LateUpdate()
         {
-            // Re-fit when the rectangle changes size (rotation, resizing UI).
-            if (data != null && content != null && (Rect.rect.size - renderedSize).sqrMagnitude > 4f) Render(data);
+            // Re-fit when the rectangle or the scale changes (rotation, resizing UI, another screen).
+            if (data != null && content != null && ((Rect.rect.size - renderedSize).sqrMagnitude > 4f || Mathf.Abs(EffectiveScale() - renderedScale) > 0.05f)) Render(data);
         }
 
         internal bool IsHalfVisible(RectTransform rt)
@@ -447,6 +455,23 @@ namespace RecoVibes
 
         // ---- UI helpers ----
 
+        int Px(float points) => Mathf.Max(1, Mathf.RoundToInt(points * k));
+
+        /// <summary>
+        /// The multiplier for every size: <see cref="scale"/> when set; otherwise
+        /// one point (1/160 inch) per unit on screen, from the device's DPI and
+        /// how the canvas maps to it - never smaller than 1.
+        /// </summary>
+        internal float EffectiveScale()
+        {
+            if (scale > 0f) return scale;
+            var canvas = GetComponentInParent<Canvas>();
+            if (canvas == null || canvas.rootCanvas.renderMode == RenderMode.WorldSpace) return 1f;
+            float factor = canvas.rootCanvas.scaleFactor, dpi = Screen.dpi;
+            if (factor <= 0f || dpi <= 0f) return 1f;
+            return RecoMath.AutoScale(dpi, factor);
+        }
+
         static string Initial(RecoCard c)
         {
             var s = (string.IsNullOrEmpty(c.name) ? c.host : c.name ?? "").Trim();
@@ -474,7 +499,7 @@ namespace RecoVibes
             var t = NewRect(name, parent).gameObject.AddComponent<Text>();
             t.font = font != null ? font : Sprites.DefaultFont;
             t.text = value;
-            t.fontSize = size;
+            t.fontSize = Px(size); // drawn at its real size: sharp at any canvas resolution
             t.fontStyle = style;
             t.color = color;
             t.alignment = TextAnchor.MiddleLeft;

@@ -74,6 +74,17 @@ namespace RecoVibes
             return Mathf.Clamp(n, 1, MaxSlots);
         }
 
+        /// <summary>
+        /// Size multiplier so one design unit is one point (1/160 inch) on screen:
+        /// screen pixels per point divided by canvas pixels per unit. At least 1
+        /// (desktop monitors), at most 6.
+        /// </summary>
+        public static float AutoScale(float dpi, float canvasScaleFactor)
+        {
+            if (dpi <= 0f || canvasScaleFactor <= 0f) return 1f;
+            return Mathf.Clamp(dpi / 160f / canvasScaleFactor, 1f, 6f);
+        }
+
         /// <summary>Fraction of <paramref name="item"/>'s area inside <paramref name="viewport"/> (both in screen space).</summary>
         public static float VisibleFraction(Rect item, Rect viewport)
         {

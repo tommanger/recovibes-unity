@@ -127,6 +127,25 @@ namespace RecoVibes.PlayTests
             Assert.Greater(panel.color.r, 0.5f, "light theme from the dashboard");
         }
 
+        [UnityTest]
+        public IEnumerator ScaleGrowsTextAndLayoutNotTheTransform()
+        {
+            widget.slots = 2;
+            yield return Show(Sample(3));
+            var baseName = widget.GetComponentsInChildren<Text>().First(t => t.name == "Name");
+            int baseFont = baseName.fontSize;
+            float baseCard = widget.GetComponentsInChildren<LayoutElement>().First(l => l.name.StartsWith("Card")).preferredHeight;
+
+            widget.scale = 2.5f;
+            widget.Render(Sample(3));
+            yield return null;
+            var name = widget.GetComponentsInChildren<Text>().First(t => t.name == "Name");
+            Assert.AreEqual(Mathf.RoundToInt(baseFont * 2.5f), name.fontSize, "text must be drawn bigger, not stretched");
+            Assert.AreEqual(baseCard * 2.5f, widget.GetComponentsInChildren<LayoutElement>().First(l => l.name.StartsWith("Card")).preferredHeight, 0.01f);
+            Assert.AreEqual(Vector3.one, widget.transform.localScale);
+            Assert.AreEqual(0.4f, widget.GetComponentsInChildren<Image>().First(i => i.name.StartsWith("Card")).pixelsPerUnitMultiplier, 0.001f, "corners scale too");
+        }
+
         // End to end against a running server (set RECOVIBES_TEST_API and
         // RECOVIBES_TEST_DATA_ID); skipped otherwise.
         [UnityTest]

@@ -24,6 +24,10 @@ var widget = go.AddComponent<RecoVibes.RecoVibesWidget>();
 widget.dataId = "rv_xxxxxxxx";
 ```
 
+## Sizing
+
+The widget sizes itself for the device: on a 1080×1920 canvas it grows text, cards and spacing so they read at a normal size on the phone. **Don't scale the object's transform to make it bigger** - Unity would draw the text small and stretch it, so it looks blurry. Use **Scale** instead.
+
 ## How it counts
 
 - A card counts as viewed once half of it has been on screen for a second while your game has focus. Hidden objects, zero-alpha Canvas Groups and masked-out cards don't count.
@@ -40,5 +44,6 @@ widget.dataId = "rv_xxxxxxxx";
 | Theme | From your dashboard design, or Light / Dark |
 | Font | Your game's font (default: Unity's built-in font) |
 | Card Height / Min Card Width / Spacing | Card sizing, in canvas units |
+| Scale | 0 = Auto: everything sized in real points for the device, whatever your canvas resolution (e.g. ×2.6 on a 1080-wide canvas on a phone). Or set a multiplier yourself. |
 
 Right-to-left scripts (Hebrew, Arabic) need a font and text setup that supports them; Unity's legacy Text doesn't shape them.
