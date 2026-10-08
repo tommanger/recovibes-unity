@@ -24,6 +24,10 @@ var widget = go.AddComponent<RecoVibes.RecoVibesWidget>();
 widget.dataId = "rv_xxxxxxxx";
 ```
 
+## Design
+
+The widget draws the design you pick in the dashboard (template, corners, theme, accent, heading, number of cards). Change it there and every copy of your game shows the new look on its next load - no new build, no package update.
+
 ## Sizing
 
 The widget sizes itself for the device: on a 1080×1920 canvas it grows text, cards and spacing so they read at a normal size on the phone. **Don't scale the object's transform to make it bigger** - Unity would draw the text small and stretch it, so it looks blurry. Use **Scale** instead.
@@ -39,11 +43,11 @@ The widget sizes itself for the device: on a 1080×1920 canvas it grows text, ca
 
 | Field | What it does |
 | --- | --- |
-| Slots | 0 = as many as fit; otherwise a fixed number (up to 12) |
-| Layout | Vertical list or Horizontal row |
+| Slots | 0 = the dashboard's setting (or as many as fit); otherwise a fixed number (up to 12) |
+| Layout | From Dashboard (the template's layout), or force a Vertical list / Horizontal row |
 | Theme | From your dashboard design, or Light / Dark |
 | Font | Your game's font (default: Unity's built-in font) |
-| Card Height / Min Card Width / Spacing | Card sizing, in canvas units |
+| Mono Font | A monospaced font for the Terminal template (default: the font above) |
 | Scale | 0 = Auto: everything sized in real points for the device, whatever your canvas resolution (e.g. ×2.6 on a 1080-wide canvas on a phone). Or set a multiplier yourself. |
 
 Right-to-left scripts (Hebrew, Arabic) need a font and text setup that supports them; Unity's legacy Text doesn't shape them.

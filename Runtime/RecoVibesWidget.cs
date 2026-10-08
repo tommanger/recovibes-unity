@@ -27,7 +27,7 @@ namespace RecoVibes
     public class RecoVibesWidget : MonoBehaviour
     {
         public const string WidgetVersion = "unity-1";
-        public const string PackageVersion = "1.1.0";
+        public const string PackageVersion = "1.2.0";
 
         public enum ThemeMode { FromDashboard, Light, Dark }
 
@@ -37,8 +37,8 @@ namespace RecoVibes
         [Tooltip("How many recommendations to show. 0 = as many as fit in this rectangle.")]
         [Range(0, RecoMath.MaxSlots)] public int slots = 0;
 
-        [Tooltip("Vertical: a list of cards. Horizontal: cards side by side.")]
-        public RecoLayout layout = RecoLayout.Vertical;
+        [Tooltip("FromDashboard follows the design you picked in the dashboard. Vertical forces one column, Horizontal one row.")]
+        public RecoLayout layout = RecoLayout.FromDashboard;
 
         [Tooltip("FromDashboard uses the theme from your RecoVibes design settings (dark when it's Auto).")]
         public ThemeMode theme = ThemeMode.FromDashboard;
@@ -46,14 +46,8 @@ namespace RecoVibes
         [Tooltip("Optional: your game's font. Empty = Unity's built-in font.")]
         public Font font;
 
-        [Tooltip("Card height in the vertical layout, in canvas units.")]
-        public float cardHeight = 76f;
-
-        [Tooltip("Smallest card width in the horizontal layout, in canvas units.")]
-        public float minCardWidth = 200f;
-
-        [Tooltip("Space between cards, in canvas units.")]
-        public float spacing = 10f;
+        [Tooltip("Optional: a monospaced font for the Terminal template. Empty = the font above.")]
+        public Font monoFont;
 
         [Tooltip("Size multiplier for everything (text, spacing, cards). 0 = Auto: sized in real points for the device, whatever your canvas resolution - e.g. ×2.6 on a 1080-wide canvas on a phone. Never scale the object's transform instead: Unity would draw the text small and stretch it (blurry).")]
         [Min(0f)] public float scale = 0f;
@@ -70,8 +64,6 @@ namespace RecoVibes
         // Tests: (event type, target dataId) for every report sent.
         internal event Action<string, string> Tracked;
 
-        const float Padding = 12f;
-        const float HeadingHeight = 20f;
         const string AttributionUrl = "https://recovibes.com/?utm_source=unity&utm_medium=attribution";
 
         RecoResponse data;
@@ -169,135 +161,264 @@ namespace RecoVibes
             }
 
             var design = response.widget ?? new RecoDesign();
-            bool dark = theme == ThemeMode.Dark || (theme == ThemeMode.FromDashboard && design.theme != "light");
-            var pal = new Palette(dark, RecoMath.ParseColor(design.accent, new Color32(0x7e, 0x7e, 0xff, 0xff)));
-            bool heading = !design.hideHeading;
-
-            var size = renderedSize - new Vector2(Padding * 2, Padding * 2) * k;
-            int fit = slots > 0 ? slots : RecoMath.AutoSlots(layout, size.x, size.y, heading, cardHeight * k, minCardWidth * k, spacing * k, HeadingHeight * k);
-            shownCount = Mathf.Min(fit, recs.Length);
+            var st = response.native != null && response.native.version >= 1 ? response.native : RecoStyle.Classic(design);
+            bool dark = theme == ThemeMode.Dark || (theme == ThemeMode.FromDashboard && st.theme != "light");
+            var pal = new Palette(dark ? st.dark : st.light);
+            style = st;
 
             content = NewRect("RecoVibes", Rect);
             Stretch(content);
-            var panel = content.gameObject.AddComponent<Image>();
-            panel.sprite = Sprites.Rounded;
-            panel.type = Image.Type.Sliced;
-            panel.pixelsPerUnitMultiplier = 1f / k; // corners grow with the scale
-            panel.color = pal.Panel;
+            var panel = Rounded(content.gameObject, pal.Panel, st.panelRadius);
+            panel.raycastTarget = false;
 
-            // Fixed placement: heading pinned to the top, cards fill the rest.
-            if (heading) BuildHeading(content, string.IsNullOrEmpty(design.heading) ? RecoMath.Heading(design.lang) : design.heading, pal);
+            float pad = st.padding * k, top = pad;
+            if (st.headingShow)
+            {
+                string title = !string.IsNullOrEmpty(st.headingText) ? st.headingText : RecoMath.Heading(design.lang);
+                top = st.headingBar ? BuildHeadingBar(title, pal) + pad * 0.7f : BuildHeading(title, pal, pad);
+            }
+            var area = new UnityEngine.Rect(pad, top, renderedSize.x - pad * 2, Mathf.Max(0, renderedSize.y - top - pad));
+            int limit = Mathf.Min(slots > 0 ? slots : st.slots > 0 ? st.slots : RecoMath.MaxSlots, recs.Length);
 
-            var list = NewRect("Cards", content);
-            Stretch(list);
-            list.offsetMin = new Vector2(Padding, Padding) * k;
-            list.offsetMax = new Vector2(-Padding, -(Padding + (heading ? HeadingHeight + spacing : 0f))) * k;
-            HorizontalOrVerticalLayoutGroup group = layout == RecoLayout.Vertical
-                ? (HorizontalOrVerticalLayoutGroup)list.gameObject.AddComponent<VerticalLayoutGroup>()
-                : list.gameObject.AddComponent<HorizontalLayoutGroup>();
-            group.spacing = spacing * k;
-            group.childControlWidth = group.childControlHeight = true;
-            group.childForceExpandWidth = true;
-            group.childForceExpandHeight = layout == RecoLayout.Horizontal;
-            group.childAlignment = TextAnchor.UpperLeft;
+            if (st.layout == "chips") LayoutChips(recs, limit, area, pal);
+            else LayoutGrid(recs, limit, area, pal);
 
-            for (int i = 0; i < shownCount; i++) cards.Add(BuildCard(list, recs[i], i, pal));
-
+            shownCount = cards.Count;
             EnsureEventSystem();
             Rendered?.Invoke(shownCount);
         }
 
-        void BuildHeading(RectTransform parent, string title, Palette pal)
-        {
-            var row = NewRect("Heading", parent);
-            row.anchorMin = new Vector2(0, 1);
-            row.anchorMax = Vector2.one;
-            row.pivot = new Vector2(0.5f, 1);
-            row.offsetMin = new Vector2(Padding, -(Padding + HeadingHeight)) * k;
-            row.offsetMax = new Vector2(-Padding, -Padding) * k;
-            var h = row.gameObject.AddComponent<HorizontalLayoutGroup>();
-            h.childControlWidth = h.childControlHeight = true;
-            h.childForceExpandWidth = false;
-            h.childAlignment = TextAnchor.MiddleLeft;
+        RecoStyle style = new RecoStyle();
 
-            var t = NewText("Title", row, title.ToUpperInvariant(), 13, pal.Muted, FontStyle.Bold);
-            t.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-            var by = NewText("By RecoVibes", row, "by RecoVibes", 12, pal.Muted, FontStyle.Normal);
+        // Title on the left, attribution on the right. Returns where items start.
+        float BuildHeading(string title, Palette pal, float pad)
+        {
+            float h = Mathf.Max(20f, style.headingSize * 1.6f) * k;
+            var t = NewText(content, "Title", style.headingUppercase ? title.ToUpperInvariant() : title, style.headingSize, pal.Muted, true, style.mono);
+            Place(t.rectTransform, pad, pad, renderedSize.x - pad * 2, h);
+            var by = NewText(content, "By RecoVibes", "by RecoVibes", style.headingSize - 1, pal.Muted, false, style.mono);
             by.alignment = TextAnchor.MiddleRight;
             by.raycastTarget = true;
+            Place(by.rectTransform, renderedSize.x - pad - by.preferredWidth - 2 * k, pad, by.preferredWidth + 2 * k, h);
             var button = by.gameObject.AddComponent<Button>();
             button.transition = Selectable.Transition.None;
             button.onClick.AddListener(() => OpenUrl?.Invoke(AttributionUrl));
+            t.rectTransform.sizeDelta = new Vector2(renderedSize.x - pad * 3 - by.preferredWidth, h);
+            return pad + h + 10f * k;
         }
 
-        CardView BuildCard(RectTransform parent, RecoCard rec, int index, Palette pal)
+        // A window title bar with traffic lights (terminal). Returns its height.
+        float BuildHeadingBar(string title, Palette pal)
         {
-            var card = NewRect("Card " + (index + 1), parent);
-            var bg = card.gameObject.AddComponent<Image>();
-            bg.sprite = Sprites.Rounded;
-            bg.type = Image.Type.Sliced;
-            bg.pixelsPerUnitMultiplier = 1f / k;
-            bg.color = pal.Card;
-            var le = card.gameObject.AddComponent<LayoutElement>();
-            if (layout == RecoLayout.Vertical) le.preferredHeight = cardHeight * k;
+            float h = (style.headingSize + 18f) * k;
+            var bar = NewRect("HeadingBar", content);
+            Place(bar, 0, 0, renderedSize.x, h);
+            Rounded(bar.gameObject, pal.Bar, style.panelRadius).raycastTarget = false;
+            var square = NewRect("BarBottom", bar); // only the top corners are round
+            Place(square, 0, h / 2, renderedSize.x, h / 2);
+            var sq = square.gameObject.AddComponent<Image>();
+            sq.color = pal.Bar;
+            sq.raycastTarget = false;
+            var line = NewRect("BarLine", bar);
+            Place(line, 0, h - Mathf.Max(1f, k), renderedSize.x, Mathf.Max(1f, k));
+            line.gameObject.AddComponent<Image>().color = pal.Line;
+            float dot = 9f * k, x = 12f * k;
+            foreach (var hex in new[] { "#ff5f57", "#febc2e", "#28c840" })
+            {
+                var d = NewRect("Dot", bar);
+                Place(d, x, (h - dot) / 2, dot, dot);
+                var img = d.gameObject.AddComponent<Image>();
+                img.sprite = Sprites.Circle;
+                img.color = RecoMath.ParseColor(hex, Color.gray);
+                img.raycastTarget = false;
+                x += dot + 5f * k;
+            }
+            var t = NewText(bar, "Title", style.headingUppercase ? title.ToUpperInvariant() : title, style.headingSize, pal.Muted, false, style.mono);
+            Place(t.rectTransform, x + 24f * k, 0, renderedSize.x - x - 36f * k, h);
+            return h;
+        }
+
+        void LayoutGrid(RecoCard[] recs, int limit, UnityEngine.Rect area, Palette pal)
+        {
+            float itemH = style.itemHeight * k, gap = style.gap * k, rowGap = style.rowGap * k;
+            int cols = layout == RecoLayout.Vertical ? 1
+                : style.minWidth > 0 ? Mathf.Clamp(Mathf.FloorToInt((area.width + gap) / (style.minWidth * k + gap)), 1, Mathf.Max(1, style.maxColumns))
+                : Mathf.Max(1, style.maxColumns);
+            int rows = layout == RecoLayout.Horizontal ? 1 : Mathf.Max(1, Mathf.FloorToInt((area.height + rowGap) / (itemH + rowGap)));
+            int n = (slots > 0 || style.slots > 0) ? limit : Mathf.Min(limit, rows * cols);
+            if (layout == RecoLayout.Horizontal) cols = Mathf.Max(1, n);
+            float cellW = (area.width - gap * (cols - 1)) / cols;
+            for (int i = 0; i < n; i++)
+            {
+                int col = i % cols, row = i / cols;
+                cards.Add(BuildItem(recs[i], i, pal, area.x + col * (cellW + gap), area.y + row * (itemH + rowGap), cellW, itemH));
+            }
+        }
+
+        void LayoutChips(RecoCard[] recs, int limit, UnityEngine.Rect area, Palette pal)
+        {
+            float h = style.itemHeight * k, gap = style.gap * k, rowGap = style.rowGap * k;
+            int lines = layout == RecoLayout.Horizontal ? 1 : Mathf.Max(1, Mathf.FloorToInt((area.height + rowGap) / (h + rowGap)));
+            float x = 0, y = 0;
+            int line = 0;
+            for (int i = 0; i < limit; i++)
+            {
+                float w = Mathf.Min(area.width, ChipWidth(recs[i]));
+                if (x > 0 && x + w > area.width)
+                {
+                    if (++line >= lines) break;
+                    x = 0;
+                    y += h + rowGap;
+                }
+                cards.Add(BuildItem(recs[i], i, pal, area.x + x, area.y + y, w, h));
+                x += w + gap;
+            }
+        }
+
+        float ChipWidth(RecoCard rec)
+        {
+            var probe = NewText(content, "Probe", DisplayName(rec), style.nameSize, Color.clear, style.nameBold, style.mono);
+            float w = probe.preferredWidth;
+            DestroyNow(probe.gameObject);
+            return style.itemPadX * k * 2 + (style.avatar ? style.avatarSize * k + 8f * k : 0) + w + 2f * k;
+        }
+
+        CardView BuildItem(RecoCard rec, int index, Palette pal, float x, float y, float w, float h)
+        {
+            var card = NewRect("Card " + (index + 1), content);
+            Place(card, x, y, w, h);
+            Image target;
+            if (style.border)
+            {
+                target = Rounded(card.gameObject, pal.Line, style.radius); // the outline...
+                var inner = NewRect("Fill", card);
+                float b = Mathf.Max(1f, k);
+                Place(inner, b, b, w - b * 2, h - b * 2);
+                var fill = Rounded(inner.gameObject, style.cardFill ? pal.Card : pal.Panel, Mathf.Max(0, style.radius - 1));
+                fill.raycastTarget = false;
+                target = fill;
+                card.GetComponent<Image>().raycastTarget = true;
+            }
             else
             {
-                // Equal widths: ignore what the text would like, share the row.
-                le.minWidth = 0;
-                le.preferredWidth = 1;
-                le.flexibleWidth = 1;
+                target = Rounded(card.gameObject, style.cardFill ? pal.Card : new Color(0, 0, 0, 0), style.radius);
+            }
+            if (style.divider)
+            {
+                var div = NewRect("Divider", card);
+                Place(div, 0, h - Mathf.Max(1f, k), w, Mathf.Max(1f, k));
+                var di = div.gameObject.AddComponent<Image>();
+                di.color = pal.Line;
+                di.raycastTarget = false;
             }
 
-            var row = card.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.padding = new RectOffset(Px(12), Px(12), Px(10), Px(10));
-            row.spacing = 12 * k;
-            row.childAlignment = TextAnchor.MiddleLeft;
-            row.childControlWidth = row.childControlHeight = true;
-            row.childForceExpandWidth = row.childForceExpandHeight = false;
-
-            // Avatar: the name's first letter on an accent-hued circle.
-            var avatar = NewRect("Avatar", card);
-            var avLe = avatar.gameObject.AddComponent<LayoutElement>();
-            avLe.preferredWidth = avLe.preferredHeight = avLe.minWidth = avLe.minHeight = 44 * k;
-            var circle = avatar.gameObject.AddComponent<Image>();
-            circle.sprite = Sprites.Circle;
-            circle.color = pal.AvatarColor(index);
-            circle.raycastTarget = false;
-            var initial = NewText("Initial", avatar, Initial(rec), 20, Color.white, FontStyle.Bold);
-            initial.alignment = TextAnchor.MiddleCenter;
-            Stretch(initial.rectTransform);
-
-            var body = NewRect("Text", card);
-            body.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-            var col = body.gameObject.AddComponent<VerticalLayoutGroup>();
-            col.childControlWidth = col.childControlHeight = true;
-            col.childForceExpandWidth = true;
-            col.childForceExpandHeight = false;
-            col.childAlignment = TextAnchor.MiddleLeft;
-            col.spacing = 2 * k;
-
-            var name = NewText("Name", body, string.IsNullOrEmpty(rec.name) ? rec.host : rec.name, 16, pal.Fg, FontStyle.Bold);
-            name.horizontalOverflow = HorizontalWrapMode.Wrap;
-            name.verticalOverflow = VerticalWrapMode.Truncate;
-            name.gameObject.AddComponent<LayoutElement>().preferredHeight = 21 * k;
-            string desc = !string.IsNullOrEmpty(rec.description) ? rec.description : string.Join(" · ", rec.categories ?? new string[0]);
-            if (!string.IsNullOrEmpty(desc))
+            float px = style.itemPadX * k, cx = px, right = w - px;
+            if (!string.IsNullOrEmpty(style.prefix))
             {
-                var d = NewText("Description", body, desc, 13, pal.Muted, FontStyle.Normal);
+                var pre = NewText(card, "Prefix", style.prefix, style.nameSize, pal.Accent, false, style.mono);
+                Place(pre.rectTransform, cx, 0, pre.preferredWidth + 1, h);
+                cx += pre.preferredWidth + 10f * k;
+            }
+            if (!string.IsNullOrEmpty(style.suffix))
+            {
+                var suf = NewText(card, "Suffix", style.suffix, style.nameSize, pal.Muted, false, style.mono);
+                suf.alignment = TextAnchor.MiddleRight;
+                Place(suf.rectTransform, right - suf.preferredWidth - 1, 0, suf.preferredWidth + 1, h);
+                right -= suf.preferredWidth + 8f * k;
+            }
+            if (style.avatar)
+            {
+                float a = style.avatarSize * k;
+                var av = NewRect("Avatar", card);
+                Place(av, cx, (h - a) / 2, a, a);
+                var tile = style.avatarRadius * 2 >= style.avatarSize ? av.gameObject.AddComponent<Image>() : Rounded(av.gameObject, Color.white, style.avatarRadius);
+                if (tile.sprite == null) tile.sprite = Sprites.Circle;
+                tile.color = pal.AvatarColor(index);
+                tile.raycastTarget = false;
+                var initial = NewText(av, "Initial", Initial(rec), style.avatarSize * 0.43f, Color.white, true, false);
+                initial.alignment = TextAnchor.MiddleCenter;
+                Stretch(initial.rectTransform);
+                cx += a + (style.layout == "chips" ? 8f : 12f) * k;
+            }
+
+            float textW = Mathf.Max(0, right - cx);
+            float nameH = style.nameSize * 1.35f * k, descH = style.descSize * 1.35f * k;
+            string desc = !string.IsNullOrEmpty(rec.description) ? rec.description : string.Join(" · ", rec.categories ?? new string[0]);
+            bool showDesc = style.descShow && !string.IsNullOrEmpty(desc);
+            var name = NewText(card, "Name", DisplayName(rec), style.nameSize, style.nameAccent ? pal.Accent : pal.Text, style.nameBold, style.mono);
+            if (style.descInline || !showDesc)
+            {
+                float nameW = showDesc ? Mathf.Min(name.preferredWidth, textW * 0.65f) : textW;
+                Fit(name, nameW);
+                Place(name.rectTransform, cx, 0, nameW, h);
+                if (showDesc)
+                {
+                    float dx = cx + nameW + 10f * k;
+                    var d = NewText(card, "Description", desc, style.descSize, pal.Muted, false, style.mono);
+                    Fit(d, Mathf.Max(0, right - dx));
+                    Place(d.rectTransform, dx, 0, Mathf.Max(0, right - dx), h);
+                }
+            }
+            else
+            {
+                int lines = Mathf.Max(1, style.descLines);
+                float block = nameH + 3f * k + descH * lines;
+                float ty = Mathf.Max(0, (h - block) / 2);
+                Fit(name, textW);
+                Place(name.rectTransform, cx, ty, textW, nameH);
+                var d = NewText(card, "Description", desc, style.descSize, pal.Muted, false, style.mono);
+                d.alignment = TextAnchor.UpperLeft;
                 d.horizontalOverflow = HorizontalWrapMode.Wrap;
                 d.verticalOverflow = VerticalWrapMode.Truncate;
-                d.gameObject.AddComponent<LayoutElement>().preferredHeight = Mathf.Max(18, cardHeight - 46) * k;
+                Place(d.rectTransform, cx, ty + nameH + 3f * k, textW, descH * lines);
             }
 
             var button = card.gameObject.AddComponent<Button>();
-            button.targetGraphic = bg;
+            button.targetGraphic = target;
             var colors = button.colors;
-            colors.highlightedColor = colors.selectedColor = new Color(1, 1, 1, 0.92f);
-            colors.pressedColor = new Color(0.85f, 0.85f, 0.85f, 1);
+            colors.highlightedColor = colors.selectedColor = new Color(0.96f, 0.96f, 0.96f, 1);
+            colors.pressedColor = new Color(0.82f, 0.82f, 0.82f, 1);
             button.colors = colors;
             var view = new CardView { card = rec, rect = card };
             button.onClick.AddListener(() => OnCardClicked(view));
             return view;
+        }
+
+        static string DisplayName(RecoCard rec) => string.IsNullOrEmpty(rec.name) ? rec.host : rec.name;
+
+        // Shortens a one-line text with "…" until it fits.
+        static void Fit(Text t, float width)
+        {
+            if (width <= 0 || t.preferredWidth <= width) return;
+            string full = t.text;
+            int lo = 0, hi = full.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                t.text = full.Substring(0, mid).TrimEnd() + "…";
+                if (t.preferredWidth <= width) lo = mid; else hi = mid - 1;
+            }
+            t.text = lo > 0 ? full.Substring(0, lo).TrimEnd() + "…" : "…";
+        }
+
+        // Positions rt at (x, y) from the parent's top-left, w × h.
+        static void Place(RectTransform rt, float x, float y, float w, float h)
+        {
+            rt.anchorMin = rt.anchorMax = new Vector2(0, 1);
+            rt.pivot = new Vector2(0, 1);
+            rt.anchoredPosition = new Vector2(x, -y);
+            rt.sizeDelta = new Vector2(Mathf.Max(0, w), Mathf.Max(0, h));
+        }
+
+        // A rounded rectangle of the given corner radius (points).
+        Image Rounded(GameObject go, Color color, float radiusPt)
+        {
+            var img = go.AddComponent<Image>();
+            img.sprite = Sprites.Rounded;
+            img.type = Image.Type.Sliced;
+            img.pixelsPerUnitMultiplier = Sprites.RoundedRadius / Mathf.Max(0.5f, radiusPt * k);
+            img.color = color;
+            return img;
         }
 
         // ---- viewability ----
@@ -494,15 +615,17 @@ namespace RecoVibes
             rt.offsetMin = rt.offsetMax = Vector2.zero;
         }
 
-        Text NewText(string name, Transform parent, string value, int size, Color color, FontStyle style)
+        Text NewText(Transform parent, string name, string value, float sizePt, Color color, bool bold, bool mono)
         {
             var t = NewRect(name, parent).gameObject.AddComponent<Text>();
-            t.font = font != null ? font : Sprites.DefaultFont;
+            t.font = mono && monoFont != null ? monoFont : font != null ? font : Sprites.DefaultFont;
             t.text = value;
-            t.fontSize = Px(size); // drawn at its real size: sharp at any canvas resolution
-            t.fontStyle = style;
+            t.fontSize = Px(sizePt); // drawn at its real size: sharp at any canvas resolution
+            t.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
             t.color = color;
             t.alignment = TextAnchor.MiddleLeft;
+            t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
             t.raycastTarget = false; // taps go to the card behind the text
             return t;
         }
@@ -533,15 +656,17 @@ namespace RecoVibes
 
         readonly struct Palette
         {
-            public readonly Color Panel, Card, Fg, Muted, Accent;
+            public readonly Color Panel, Card, Line, Text, Muted, Accent, Bar;
 
-            public Palette(bool dark, Color accent)
+            public Palette(RecoPalette p)
             {
-                Accent = accent;
-                Panel = dark ? new Color32(0x12, 0x12, 0x15, 0xff) : new Color32(0xf3, 0xf3, 0xf5, 0xff);
-                Card = dark ? new Color32(0x1e, 0x1e, 0x23, 0xff) : new Color32(0xff, 0xff, 0xff, 0xff);
-                Fg = dark ? new Color32(0xf2, 0xf2, 0xf4, 0xff) : new Color32(0x14, 0x14, 0x18, 0xff);
-                Muted = dark ? new Color32(0x9a, 0x9a, 0xa6, 0xff) : new Color32(0x6b, 0x6b, 0x76, 0xff);
+                Panel = RecoMath.ParseColor(p.panel, Color.black);
+                Card = RecoMath.ParseColor(p.card, Color.black);
+                Line = RecoMath.ParseColor(p.line, Color.gray);
+                Text = RecoMath.ParseColor(p.text, Color.white);
+                Muted = RecoMath.ParseColor(p.muted, Color.gray);
+                Accent = RecoMath.ParseColor(p.accent, new Color32(0x7e, 0x7e, 0xff, 0xff));
+                Bar = RecoMath.ParseColor(p.bar, Color.black);
             }
 
             // Each card's avatar steps around the color wheel from the accent.
@@ -559,7 +684,8 @@ namespace RecoVibes
         static Sprite rounded, circle;
         static Font defaultFont;
 
-        public static Sprite Rounded => rounded != null ? rounded : rounded = Make(48, 12, sliced: true);
+        public const float RoundedRadius = 24f;
+        public static Sprite Rounded => rounded != null ? rounded : rounded = Make(96, (int)RoundedRadius, sliced: true);
         public static Sprite Circle => circle != null ? circle : circle = Make(96, 48, sliced: false);
 
         public static Font DefaultFont

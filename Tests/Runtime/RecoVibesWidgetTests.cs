@@ -134,16 +134,85 @@ namespace RecoVibes.PlayTests
             yield return Show(Sample(3));
             var baseName = widget.GetComponentsInChildren<Text>().First(t => t.name == "Name");
             int baseFont = baseName.fontSize;
-            float baseCard = widget.GetComponentsInChildren<LayoutElement>().First(l => l.name.StartsWith("Card")).preferredHeight;
+            float baseCard = Card(1).rect.height;
 
             widget.scale = 2.5f;
             widget.Render(Sample(3));
             yield return null;
             var name = widget.GetComponentsInChildren<Text>().First(t => t.name == "Name");
             Assert.AreEqual(Mathf.RoundToInt(baseFont * 2.5f), name.fontSize, "text must be drawn bigger, not stretched");
-            Assert.AreEqual(baseCard * 2.5f, widget.GetComponentsInChildren<LayoutElement>().First(l => l.name.StartsWith("Card")).preferredHeight, 0.01f);
+            Assert.AreEqual(baseCard * 2.5f, Card(1).rect.height, 0.01f);
             Assert.AreEqual(Vector3.one, widget.transform.localScale);
-            Assert.AreEqual(0.4f, widget.GetComponentsInChildren<Image>().First(i => i.name.StartsWith("Card")).pixelsPerUnitMultiplier, 0.001f, "corners scale too");
+            Assert.AreEqual(24f / (10f * 2.5f), Card(1).GetComponent<Image>().pixelsPerUnitMultiplier, 0.001f, "corners scale too");
+        }
+
+        // ---- the dashboard's templates, as the server describes them ----
+
+        RectTransform Card(int n) => (RectTransform)widget.GetComponentsInChildren<Button>().First(b => b.name == "Card " + n).transform;
+
+        IEnumerable<RectTransform> Cards() => widget.GetComponentsInChildren<Button>().Where(b => b.name.StartsWith("Card")).Select(b => (RectTransform)b.transform);
+
+        static RecoResponse Styled(int n, Action<RecoStyle> tune)
+        {
+            var r = Sample(n);
+            r.recommendations[1].name = "A much longer game name";
+            r.native = new RecoStyle { version = 1 };
+            tune(r.native);
+            return r;
+        }
+
+        [UnityTest]
+        public IEnumerator DashboardSlotsAndColumns()
+        {
+            yield return Show(Styled(8, s => { s.slots = 3; s.minWidth = 180; s.maxColumns = 4; }));
+            var cards = Cards().ToList();
+            Assert.AreEqual(3, cards.Count, "the dashboard's slot count");
+            Assert.AreEqual(cards[0].anchoredPosition.y, cards[2].anchoredPosition.y, 0.01f, "600 wide fits three 180-wide columns");
+        }
+
+        [UnityTest]
+        public IEnumerator PillsFlowAsChipsSizedToTheirNames()
+        {
+            yield return Show(Styled(6, s =>
+            {
+                s.template = "pills"; s.layout = "chips"; s.maxColumns = 0; s.itemHeight = 36; s.radius = 999; s.gap = 8; s.rowGap = 8;
+                s.avatar = true; s.avatarSize = 24; s.avatarRadius = 12; s.nameSize = 13; s.nameBold = false; s.descShow = false;
+            }));
+            Assert.IsFalse(widget.GetComponentsInChildren<Text>().Any(t => t.name == "Description"));
+            Assert.Greater(Card(2).rect.width, Card(1).rect.width + 40, "a pill is as wide as its name");
+            Assert.AreEqual(Card(1).anchoredPosition.y, Card(2).anchoredPosition.y, 0.01f, "pills share a line");
+            Assert.AreEqual(36f, Card(1).rect.height, 0.01f);
+            Assert.AreEqual(widget.GetComponentsInChildren<Button>().Count(b => b.name.StartsWith("Card")), widget.GetComponentsInChildren<Image>().Count(i => i.name == "Avatar"));
+        }
+
+        [UnityTest]
+        public IEnumerator TerminalHasATitleBarPrefixesAndOneColumn()
+        {
+            yield return Show(Styled(4, s =>
+            {
+                s.template = "terminal"; s.maxColumns = 1; s.minWidth = 0; s.itemHeight = 24; s.gap = 0; s.rowGap = 0; s.itemPadX = 0;
+                s.cardFill = false; s.border = false; s.nameAccent = true; s.nameBold = false; s.descInline = true; s.descLines = 1;
+                s.prefix = "→"; s.mono = true; s.headingBar = true; s.headingUppercase = false;
+            }));
+            Assert.IsNotNull(widget.transform.Find("RecoVibes/HeadingBar"));
+            var cards = Cards().ToList();
+            Assert.Greater(cards.Count, 1);
+            Assert.IsTrue(cards.All(c => Mathf.Approximately(c.anchoredPosition.x, cards[0].anchoredPosition.x)), "one column");
+            Assert.IsTrue(cards.All(c => c.Find("Prefix")?.GetComponent<Text>().text == "→"));
+            Assert.AreEqual(0f, cards[0].GetComponent<Image>().color.a, "no card background");
+        }
+
+        [UnityTest]
+        public IEnumerator MinimalIsAListWithDividers()
+        {
+            yield return Show(Styled(4, s =>
+            {
+                s.template = "minimal"; s.maxColumns = 3; s.minWidth = 260; s.itemHeight = 41; s.gap = 28; s.rowGap = 0; s.itemPadX = 2;
+                s.cardFill = false; s.border = false; s.divider = true; s.descInline = true; s.descLines = 1; s.suffix = "↗";
+            }));
+            var cards = Cards().ToList();
+            Assert.IsTrue(cards.All(c => c.Find("Divider") != null && c.Find("Suffix") != null));
+            Assert.AreEqual(cards[0].anchoredPosition.y, cards[1].anchoredPosition.y, 0.01f, "description beside the name, two columns in 600");
         }
 
         // End to end against a running server (set RECOVIBES_TEST_API and

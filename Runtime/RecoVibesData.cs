@@ -34,6 +34,64 @@ namespace RecoVibes
         public string receipt;
         public RecoCard[] recommendations;
         public RecoDesign widget;
+        public RecoStyle native; // how to draw the owner's design (null from older servers)
+    }
+
+    /// <summary>Colors as #RRGGBBAA.</summary>
+    [Serializable]
+    public class RecoPalette
+    {
+        public string panel = "#111116ff", card = "#1b1b22ff", line = "#ffffff24", text = "#f2f2f5ff", muted = "#f2f2f5ad", accent = "#7e7effff", bar = "#161b22ff", pressed = "#ffffff14";
+    }
+
+    /// <summary>
+    /// The owner's dashboard design resolved by the server into drawing
+    /// instructions (sizes in points). The SDK draws whatever this says, so
+    /// templates change on the server without a new package.
+    /// </summary>
+    [Serializable]
+    public class RecoStyle
+    {
+        public int version;
+        public string template = "", theme = "";
+        public int slots;
+        public string layout = "grid";
+        public int maxColumns = 4;
+        public float minWidth = 180, itemHeight = 66, gap = 10, rowGap = 10, padding = 14, itemPadX = 14, radius = 10, panelRadius = 14;
+        public bool cardFill = true, border = true, divider;
+        public bool avatar;
+        public float avatarSize, avatarRadius;
+        public float nameSize = 15;
+        public bool nameBold = true, nameAccent;
+        public bool descShow = true;
+        public float descSize = 12.5f;
+        public int descLines = 2;
+        public bool descInline;
+        public string prefix = "", suffix = "";
+        public bool mono;
+        public bool headingShow = true;
+        public string headingText = "";
+        public float headingSize = 12;
+        public bool headingUppercase = true, headingBar;
+        public RecoPalette light = new RecoPalette
+        {
+            panel = "#f5f5f7ff", card = "#ffffffff", line = "#0000001f", text = "#17171cff", muted = "#17171cad", bar = "#eaeef2ff", pressed = "#0000000d",
+        };
+        public RecoPalette dark = new RecoPalette();
+
+        /// <summary>The classic look, for servers that don't send a style yet.</summary>
+        public static RecoStyle Classic(RecoDesign d)
+        {
+            var s = new RecoStyle { version = 1, template = "classic" };
+            if (d != null)
+            {
+                s.theme = d.theme == "light" || d.theme == "dark" ? d.theme : "";
+                s.headingShow = !d.hideHeading;
+                s.headingText = d.heading ?? "";
+                if (!string.IsNullOrEmpty(d.accent)) s.light.accent = s.dark.accent = d.accent + "ff";
+            }
+            return s;
+        }
     }
 
     // Every field is one the server knows; empty ones are ignored there.
@@ -51,7 +109,8 @@ namespace RecoVibes
         public bool trusted;
     }
 
-    public enum RecoLayout { Vertical, Horizontal }
+    /// <summary>FromDashboard follows the template; Vertical forces one column; Horizontal one row.</summary>
+    public enum RecoLayout { Vertical, Horizontal, FromDashboard }
 
     /// <summary>Pure helpers, kept apart from MonoBehaviour code so they can be unit tested.</summary>
     public static class RecoMath
