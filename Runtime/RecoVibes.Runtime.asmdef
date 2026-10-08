@@ -1,0 +1,6 @@
+{
+  "name": "RecoVibes",
+  "rootNamespace": "RecoVibes",
+  "references": ["UnityEngine.UI"],
+  "autoReferenced": true
+}

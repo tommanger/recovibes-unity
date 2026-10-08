@@ -1,0 +1,7 @@
+{
+  "name": "RecoVibes.Editor",
+  "rootNamespace": "RecoVibes.Editor",
+  "references": ["RecoVibes", "UnityEngine.UI"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

@@ -1,0 +1,16 @@
+{
+  "name": "com.recovibes.widget",
+  "version": "1.0.0",
+  "displayName": "RecoVibes",
+  "description": "Recommendations from the RecoVibes network, drawn with Unity UI. Show other indie games and apps in yours, and get shown in theirs.",
+  "unity": "2021.3",
+  "dependencies": {
+    "com.unity.ugui": "1.0.0"
+  },
+  "keywords": ["recommendations", "cross-promotion", "indie", "recovibes"],
+  "author": {
+    "name": "RecoVibes",
+    "url": "https://recovibes.com"
+  },
+  "documentationUrl": "https://recovibes.com"
+}

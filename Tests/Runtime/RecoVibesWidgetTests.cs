@@ -1,0 +1,154 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+using UnityEngine.UI;
+
+namespace RecoVibes.PlayTests
+{
+    public class RecoVibesWidgetTests
+    {
+        GameObject canvasGo;
+        RecoVibesWidget widget;
+        readonly List<string> tracked = new List<string>();
+        readonly List<string> opened = new List<string>();
+        Action<string> savedOpenUrl;
+
+        static RecoResponse Sample(int n, string theme = "") => new RecoResponse
+        {
+            receipt = "test-receipt",
+            recommendations = Enumerable.Range(1, n).Select(i => new RecoCard { dataId = "rv_" + i, name = "Game " + i, url = "https://example.com/" + i, description = "A fine game" }).ToArray(),
+            widget = new RecoDesign { theme = theme, lang = "en" },
+        };
+
+        [SetUp]
+        public void SetUp()
+        {
+            canvasGo = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            canvasGo.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+            var go = new GameObject("RecoVibes", typeof(RectTransform));
+            go.SetActive(false); // no network load: tests render sample data
+            go.transform.SetParent(canvasGo.transform, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = Vector2.zero;
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(Mathf.Min(600, Screen.width), Mathf.Min(400, Screen.height));
+            widget = go.AddComponent<RecoVibesWidget>();
+            widget.apiBase = "http://127.0.0.1:9"; // nothing listens: reports go nowhere
+            widget.Tracked += (type, target) => tracked.Add(type + ":" + target);
+            savedOpenUrl = RecoVibesWidget.OpenUrl;
+            RecoVibesWidget.OpenUrl = url => opened.Add(url);
+            tracked.Clear();
+            opened.Clear();
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            RecoVibesWidget.OpenUrl = savedOpenUrl;
+            UnityEngine.Object.Destroy(canvasGo);
+        }
+
+        IEnumerator Show(RecoResponse data)
+        {
+            widget.gameObject.SetActive(true);
+            widget.Render(data);
+            yield return null;
+            Canvas.ForceUpdateCanvases();
+        }
+
+        [UnityTest]
+        public IEnumerator FillsTheRectangleAndCountsOneVisibleSecond()
+        {
+            int rendered = -1;
+            widget.Rendered += n => rendered = n;
+            yield return Show(Sample(8));
+            Assert.Greater(rendered, 0);
+            Assert.LessOrEqual(rendered, 8);
+            var names = widget.GetComponentsInChildren<Text>().Where(t => t.name == "Name").Select(t => t.text).ToList();
+            Assert.AreEqual(rendered, names.Count);
+            Assert.AreEqual("Game 1", names[0]);
+
+            yield return new WaitForSecondsRealtime(0.5f);
+            Assert.IsFalse(tracked.Any(t => t.StartsWith("impression")), "counted before a full second");
+            yield return new WaitForSecondsRealtime(1.0f);
+            Assert.AreEqual(1, tracked.Count(t => t == "impression:"), "one widget view");
+            Assert.AreEqual(1, tracked.Count(t => t == "impression:rv_1"), "first card counted once");
+            yield return new WaitForSecondsRealtime(1.2f);
+            Assert.AreEqual(1, tracked.Count(t => t == "impression:rv_1"), "a card is counted once per screen view");
+        }
+
+        [UnityTest]
+        public IEnumerator HiddenCardsAreNotCounted()
+        {
+            canvasGo.AddComponent<CanvasGroup>().alpha = 0f;
+            yield return Show(Sample(3));
+            yield return new WaitForSecondsRealtime(1.5f);
+            Assert.IsFalse(tracked.Any(t => t.StartsWith("impression")), "invisible widget counted");
+        }
+
+        [UnityTest]
+        public IEnumerator TapReportsTheClickThenOpensTheStore()
+        {
+            yield return Show(Sample(3));
+            var card = widget.GetComponentsInChildren<Button>().First(b => b.name == "Card 2");
+            card.onClick.Invoke();
+            card.onClick.Invoke(); // a double tap is still one visit
+            yield return new WaitForSecondsRealtime(1.0f);
+            CollectionAssert.AreEqual(new[] { "click:rv_2" }, tracked.Where(t => t.StartsWith("click")).ToArray());
+            CollectionAssert.AreEqual(new[] { "https://example.com/2" }, opened);
+        }
+
+        [UnityTest]
+        public IEnumerator PausedOrEmptyShowsNothing()
+        {
+            int rendered = -1;
+            widget.Rendered += n => rendered = n;
+            var paused = Sample(3);
+            paused.paused = true;
+            yield return Show(paused);
+            Assert.AreEqual(0, rendered);
+            Assert.AreEqual(0, widget.GetComponentsInChildren<Button>().Length);
+            yield return Show(Sample(0));
+            Assert.AreEqual(0, rendered);
+        }
+
+        [UnityTest]
+        public IEnumerator FixedSlotsAndTheme()
+        {
+            widget.slots = 2;
+            widget.layout = RecoLayout.Horizontal;
+            yield return Show(Sample(5, "light"));
+            Assert.AreEqual(2, widget.GetComponentsInChildren<Button>().Count(b => b.name.StartsWith("Card")));
+            var panel = widget.transform.Find("RecoVibes").GetComponent<Image>();
+            Assert.Greater(panel.color.r, 0.5f, "light theme from the dashboard");
+        }
+
+        // End to end against a running server (set RECOVIBES_TEST_API and
+        // RECOVIBES_TEST_DATA_ID); skipped otherwise.
+        [UnityTest]
+        public IEnumerator LoadsAndReportsAgainstARealServer()
+        {
+            var api = Environment.GetEnvironmentVariable("RECOVIBES_TEST_API");
+            var id = Environment.GetEnvironmentVariable("RECOVIBES_TEST_DATA_ID");
+            if (string.IsNullOrEmpty(api) || string.IsNullOrEmpty(id)) Assert.Ignore("RECOVIBES_TEST_API / RECOVIBES_TEST_DATA_ID not set");
+            int rendered = -1;
+            widget.Rendered += n => rendered = n;
+            widget.apiBase = api;
+            widget.dataId = id;
+            widget.gameObject.SetActive(true);
+            for (float t = 0; rendered < 0 && t < 10f; t += Time.unscaledDeltaTime) yield return null;
+            Assert.Greater(rendered, 0, "no recommendations from the server");
+            yield return new WaitForSecondsRealtime(1.6f);
+            Assert.Contains("ready:", tracked);
+            Assert.IsTrue(tracked.Any(t => t.StartsWith("impression:rv_")), "no card impression reported");
+            widget.GetComponentsInChildren<Button>().First(b => b.name == "Card 1").onClick.Invoke();
+            yield return new WaitForSecondsRealtime(1.5f);
+            Assert.AreEqual(1, opened.Count);
+            Debug.Log("[RecoVibes test] opened " + opened[0]);
+        }
+    }
+}

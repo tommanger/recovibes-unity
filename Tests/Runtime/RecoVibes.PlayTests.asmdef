@@ -1,0 +1,8 @@
+{
+  "name": "RecoVibes.PlayTests",
+  "references": ["RecoVibes", "UnityEngine.UI", "UnityEngine.TestRunner"],
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}
