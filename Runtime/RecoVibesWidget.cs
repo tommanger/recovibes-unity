@@ -27,7 +27,7 @@ namespace RecoVibes
     public class RecoVibesWidget : MonoBehaviour
     {
         public const string WidgetVersion = "unity-1";
-        public const string PackageVersion = "1.2.1";
+        public const string PackageVersion = "1.2.2";
 
         public enum ThemeMode { FromDashboard, Light, Dark }
 
@@ -184,6 +184,18 @@ namespace RecoVibes
             else LayoutGrid(recs, limit, area, pal);
 
             shownCount = cards.Count;
+            // The panel ends under the last row, like on the web, instead of
+            // filling a taller rectangle with empty space.
+            float used = 0;
+            foreach (var c in cards) used = Mathf.Max(used, -c.rect.anchoredPosition.y + c.rect.sizeDelta.y);
+            if (used > 0 && used + pad < renderedSize.y)
+            {
+                content.anchorMin = new Vector2(0, 1);
+                content.anchorMax = new Vector2(1, 1);
+                content.pivot = new Vector2(0.5f, 1);
+                content.offsetMin = new Vector2(0, -(used + pad));
+                content.offsetMax = Vector2.zero;
+            }
             EnsureEventSystem();
             Rendered?.Invoke(shownCount);
         }

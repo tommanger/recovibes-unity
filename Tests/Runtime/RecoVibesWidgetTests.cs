@@ -162,6 +162,15 @@ namespace RecoVibes.PlayTests
         }
 
         [UnityTest]
+        public IEnumerator PanelEndsUnderTheLastRow()
+        {
+            yield return Show(Styled(2, s => { s.slots = 1; }));
+            var panel = (RectTransform)widget.transform.Find("RecoVibes");
+            Assert.Less(panel.rect.height, widget.GetComponent<RectTransform>().rect.height - 50, "no empty panel below the cards");
+            Assert.AreEqual(Card(1).rect.height + Card(1).anchoredPosition.y * -1 + 14f, panel.rect.height, 0.5f);
+        }
+
+        [UnityTest]
         public IEnumerator DashboardSlotsAndColumns()
         {
             yield return Show(Styled(8, s => { s.slots = 3; s.minWidth = 180; s.maxColumns = 4; }));
